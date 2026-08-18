@@ -17,7 +17,7 @@ resource "aws_sns_topic" "this" {
 
   lifecycle {
     precondition {
-      condition     = var.name == null || var.name_prefix == null
+      condition     = (var.name == null) != (var.name_prefix == null)
       error_message = "Only one of \"name\" or \"name_prefix\" may be set; leave both null to let the provider generate a name."
     }
 

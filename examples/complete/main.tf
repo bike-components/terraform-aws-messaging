@@ -18,16 +18,9 @@ locals {
 }
 
 
-module "sns" {
-  source      = "../../modules/sns"
-  name = local.name
-  fifo_topic  = true
+module "sqs" {
+  source      = "../../modules/sqs"
+
+
   tags        = local.tags
-}
-
-module "s3" {
-  source        = "../../modules/s3"
-  bucket_prefix = local.name
-
-  tags = local.tags
 }
