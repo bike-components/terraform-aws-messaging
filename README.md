@@ -1,0 +1,153 @@
+# terraform-aws-messaging
+
+SNS + SQS pub/sub, composed from nested `sns`/`sqs`/`s3` submodules. Creates an
+optional topic, N queues (each optionally with its own DLQ and large-payload
+offload), the IAM plumbing for producers and consumers, and the policies that
+let everything actually talk to each other.
+
+## Usage
+
+```hcl
+module "messaging" {
+  source = "git::https://github.com/tomxyz/terraform-aws-messaging.git?ref=v1.0.0"
+
+  name_prefix = "logpipe-prod"
+
+  create_topic = true
+  topic_name   = "events"
+
+  default_queue_settings = {
+    visibility_timeout_seconds = 60
+    max_receive_count          = 3
+  }
+
+  queues = {
+    orders = {
+      create_dlq = true
+    }
+    metrics = {
+      create_dlq         = true
+      max_receive_count  = 3   # overrides the module default above
+      raw_message_delivery = false
+    }
+    logs = {
+      # no DLQ, module-default limits apply
+      enable_large_payload_offload = true
+    }
+    audit = {
+      name_override      = "compliance-audit-queue" # ignores the prefix entirely
+      subscribe_to_topic = false                     # direct-send only, not part of pub/sub
+    }
+  }
+
+  tags = { environment = "prod", team = "platform" }
+}
+```
+
+## IAM — per-queue/topic tx and rx roles
+
+There's no single blanket "transmitter" or "receiver" role for the whole
+module. Each queue opts in independently to its own dedicated role per
+direction:
+
+```hcl
+queues = {
+  orders = {
+    create_dlq     = true
+    create_tx_role = true
+    create_rx_role = true
+
+    tx_principal_arns = ["arn:aws:iam::111111111111:role/order-api"]
+    rx_principal_arns = ["arn:aws:iam::111111111111:role/order-worker"]
+  }
+}
+```
+
+`create_tx_role`/`create_rx_role` default to `false` — a queue with neither
+set gets no role at all. The topic only ever gets a tx (publish) role
+(`create_topic_tx_role` / `topic_tx_principal_arns`), since consuming
+happens through the subscribed queues' own rx roles, not the topic itself.
+
+If `tx_principal_arns`/`rx_principal_arns` is left empty, the role still
+gets created (so its permissions exist immediately), but its trust policy
+falls back to the AWS account root instead of a real principal. That's not
+an open door — IAM is default-deny, so nothing can actually call
+`sts:AssumeRole` on it until you separately grant that permission to a
+specific principal, using the role ARN from `queue_tx_role_arns` /
+`queue_rx_role_arns` / `topic_tx_role_arn`. This lets the module "just
+provide the roles" without forcing you to know the consumer's ARN up front.
+
+## Prefixing and overrides
+
+`name_prefix` is applied to every resource name (`<prefix>-<key>`, `<prefix>-payloads`,
+`<prefix>-messaging-transmitter`, ...). Any single queue can opt out entirely with
+`name_override`. Numeric limits (visibility timeout, message size, retention, receive
+wait time, max receive count) work the same way: set them once in
+`default_queue_settings`, and only specify a field on a queue when it needs to differ.
+Resolution happens once, in `locals.tf`, via `coalesce()` — nothing downstream needs
+to know about the fallback.
+
+## Large-payload (S3) offload — does it belong here?
+
+Borderline, same as the SNS/SQS split earlier. The bucket itself
+(`modules/s3`) is generic — versioning, encryption, lifecycle expiry — and
+has zero messaging-specific logic. What ties it to this module is the IAM
+story: transmitter gets `s3:PutObject`, receiver gets `s3:GetObject`, scoped
+to the same bucket, only granted when at least one queue asks for it
+(`enable_large_payload_offload = true`). That coupling is the reason it's
+bundled here rather than a separate repo.
+
+**What this module does *not* do**: decide when a payload is "too big" and
+actually perform the offload — that's the producer/consumer application's
+job (the AWS "extended client library" pattern: hash-check payload size,
+if over threshold PUT to S3 and publish a small pointer message instead of
+the payload). If you build your Go log-receiver against this, that logic
+lives in your Go code, not in Terraform.
+
+If you ever need the bucket outside a messaging context (e.g. a generic
+artifact-store), promote `modules/s3` to its own top-level module the same
+way you'd promote `modules/sqs` — same idea as the earlier SNS/SQS
+discussion, just applied here too.
+
+## Raw message delivery
+
+`raw_message_delivery` (default `true`) controls whether a subscribed queue
+gets the payload as-is or wrapped in the SNS JSON envelope (`Type`,
+`MessageId`, `TopicArn`, `Message`, ...). Set it per queue — useful when one
+consumer wants SNS metadata (e.g. `MessageAttributes` for filtering) and
+another just wants the raw body.
+
+## What's next / best practices worth adding
+
+- **KMS everywhere.** Both `modules/sns` and `modules/sqs` accept
+  `kms_master_key_id` but the root module doesn't wire it through yet —
+  add a `kms_key_arn` variable at the root and pass it into both, default
+  to the AWS-managed `alias/aws/sqs` / `alias/aws/sns` keys so encryption
+  is on by default, not opt-in.
+- **CloudWatch alarms on DLQ depth.** A DLQ silently filling up is the
+  most common way this pattern fails in production. A small
+  `modules/sqs` addition (`aws_cloudwatch_metric_alarm` on
+  `ApproximateNumberOfMessagesVisible`) with an SNS topic for alerting
+  would close that gap.
+- **Variable validation.** Add `validation` blocks enforcing
+  `create_topic XOR external_topic_arn`, and that
+  `transmitter_principal_arns`/`receiver_principal_arns` are non-empty when
+  `create_iam_roles = true` — right now both fail at apply time with a
+  less obvious error instead of plan time.
+- **`examples/` directory.** Registry modules are expected to ship
+  runnable examples (`examples/basic`, `examples/fifo-with-dlq`,
+  `examples/external-topic`) — also doubles as your integration test
+  fixture.
+- **Native `terraform test`** (`.tftest.hcl`) covering: DLQ wiring only
+  appears when requested, subscription only created when
+  `subscribe_to_topic = true`, offload IAM statements only appear when a
+  queue opts in. Terraform 1.6+ supports this without extra tooling.
+- **tflint + checkov in CI**, tying back into the SAST/SCA pipeline
+  concepts you already worked through — this is exactly the kind of repo
+  that pipeline should gate.
+- **Consistent `optional()` object typing.** You're already using it for
+  `queues` and `default_queue_settings` — worth a pass to make sure every
+  nested object uses the same style so the module reads uniformly.
+- **Publish to a private/public registry** (naming convention
+  `terraform-aws-messaging`) once you're happy with the interface, so
+  consumers pin `version = "~> 1.0"` instead of a git ref.

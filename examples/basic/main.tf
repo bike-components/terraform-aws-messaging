@@ -32,8 +32,8 @@ module "complete" {
       create_dlq = true
     }
     metrics = {
-      create_dlq         = true
-      max_receive_count  = 3   # overrides the module default above
+      create_dlq           = true
+      max_receive_count    = 3 # overrides the module default above
       raw_message_delivery = false
     }
     logs = {
@@ -42,7 +42,7 @@ module "complete" {
     }
     audit = {
       name_override      = "compliance-audit-queue" # ignores the prefix entirely
-      subscribe_to_topic = false                     # direct-send only, not part of pub/sub
+      subscribe_to_topic = false                    # direct-send only, not part of pub/sub
     }
   }
   tags = local.tags

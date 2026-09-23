@@ -20,11 +20,11 @@ module "dlq" {
   source   = "./modules/sqs"
   for_each = local.dlq_queues
 
-  name                        = "${each.value.resolved_name}-dlq"
-  fifo_queue                  = each.value.fifo_queue
-  visibility_timeout_seconds  = each.value.visibility_timeout_seconds
-  message_retention_seconds   = each.value.message_retention_seconds
-  max_message_size            = each.value.max_message_size
+  name                       = "${each.value.resolved_name}-dlq"
+  fifo_queue                 = each.value.fifo_queue
+  visibility_timeout_seconds = each.value.visibility_timeout_seconds
+  message_retention_seconds  = each.value.message_retention_seconds
+  max_message_size           = each.value.max_message_size
 
   tags = var.tags
 }
@@ -37,15 +37,15 @@ module "queues" {
   source   = "./modules/sqs"
   for_each = local.queues
 
-  name                         = each.value.resolved_name
-  fifo_queue                   = each.value.fifo_queue
-  content_based_deduplication  = each.value.content_based_deduplication
+  name                        = each.value.resolved_name
+  fifo_queue                  = each.value.fifo_queue
+  content_based_deduplication = each.value.content_based_deduplication
 
   visibility_timeout_seconds = each.value.visibility_timeout_seconds
   message_retention_seconds  = each.value.message_retention_seconds
   max_message_size           = each.value.max_message_size
-  delay_seconds               = each.value.delay_seconds
-  receive_wait_time_seconds   = each.value.receive_wait_time_seconds
+  delay_seconds              = each.value.delay_seconds
+  receive_wait_time_seconds  = each.value.receive_wait_time_seconds
 
   redrive_policy = each.value.create_dlq ? jsonencode({
     deadLetterTargetArn = module.dlq[each.key].arn
@@ -74,11 +74,11 @@ resource "aws_sns_topic_subscription" "this" {
   for_each = local.topic_enabled ? local.subscribed_queues : {}
 
   topic_arn            = local.topic_arn
-  protocol              = "sqs"
-  endpoint              = module.queues[each.key].arn
-  raw_message_delivery  = each.value.raw_message_delivery
-  filter_policy         = each.value.filter_policy
-  filter_policy_scope   = each.value.filter_policy != null ? each.value.filter_policy_scope : null
+  protocol             = "sqs"
+  endpoint             = module.queues[each.key].arn
+  raw_message_delivery = each.value.raw_message_delivery
+  filter_policy        = each.value.filter_policy
+  filter_policy_scope  = each.value.filter_policy != null ? each.value.filter_policy_scope : null
 }
 
 # Let the topic actually deliver into each subscribed queue.
