@@ -1,21 +1,26 @@
 output "topic_arn" {
-  value = local.topic_arn
+  description = "ARN of the topic, whether created by this module (create_topic) or passed in via external_topic_arn. Null if neither is set."
+  value       = local.topic_arn
 }
 
 output "queue_arns" {
-  value = { for k, q in module.queues : k => q.arn }
+  description = "ARN of each queue, keyed by queue name."
+  value       = { for k, q in module.queues : k => q.arn }
 }
 
 output "queue_urls" {
-  value = { for k, q in module.queues : k => q.url }
+  description = "URL of each queue, keyed by queue name."
+  value       = { for k, q in module.queues : k => q.url }
 }
 
 output "dlq_arns" {
-  value = { for k, q in module.dlq : k => q.arn }
+  description = "ARN of each queue's DLQ, keyed by queue name. Only present for queues with create_dlq = true."
+  value       = { for k, q in module.dlq : k => q.arn }
 }
 
 output "payload_bucket_name" {
-  value = local.enable_large_payload_offload ? module.payload_bucket[0].bucket_name : null
+  description = "Name of the large-payload offload bucket, or null if no queue has enable_large_payload_offload set."
+  value       = local.enable_large_payload_offload ? module.payload_bucket[0].bucket_name : null
 }
 
 output "queue_tx_role_arns" {

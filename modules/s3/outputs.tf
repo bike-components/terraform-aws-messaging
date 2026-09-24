@@ -1,7 +1,9 @@
 output "bucket_name" {
-  value = aws_s3_bucket.this.bucket
+  description = "Name of the created bucket."
+  value       = aws_s3_bucket.this.bucket
 }
 
 output "bucket_arn" {
-  value = aws_s3_bucket.this.arn
+  description = "ARN of the created bucket."
+  value       = aws_s3_bucket.this.arn
 }

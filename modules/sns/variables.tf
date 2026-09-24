@@ -1,16 +1,19 @@
 variable "name" {
-  type    = string
-  default = null
+  description = "Exact topic name. Mutually exclusive with name_prefix; leave both null to let the provider generate a name."
+  type        = string
+  default     = null
 }
 
 variable "name_prefix" {
-  type    = string
-  default = null
+  description = "Prefix for a provider-generated topic name. Mutually exclusive with name."
+  type        = string
+  default     = null
 }
 
 variable "fifo_topic" {
-  type    = bool
-  default = false
+  description = "Create a FIFO topic instead of standard. Required if name ends in \".fifo\"."
+  type        = bool
+  default     = false
 }
 
 variable "kms_master_key_id" {
@@ -20,6 +23,7 @@ variable "kms_master_key_id" {
 }
 
 variable "tags" {
-  type    = map(string)
-  default = {}
+  description = "Tags applied to the topic."
+  type        = map(string)
+  default     = {}
 }

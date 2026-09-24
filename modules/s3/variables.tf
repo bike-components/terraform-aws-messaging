@@ -1,24 +1,29 @@
 variable "bucket_name" {
-  type    = string
-  default = null
+  description = "Exact bucket name. Mutually exclusive with bucket_prefix; leave both null to let the provider generate a name."
+  type        = string
+  default     = null
 }
 
 variable "bucket_prefix" {
-  type    = string
-  default = null
+  description = "Prefix for a provider-generated bucket name. Mutually exclusive with bucket_name."
+  type        = string
+  default     = null
 }
 
 variable "expiration_days" {
-  type    = number
-  default = 7
+  description = "How long objects live in the bucket before the lifecycle rule expires them."
+  type        = number
+  default     = 7
 }
 
 variable "force_destroy" {
-  type    = bool
-  default = false
+  description = "Allow the bucket to be destroyed even if it still contains objects."
+  type        = bool
+  default     = false
 }
 
 variable "tags" {
-  type    = map(string)
-  default = {}
+  description = "Tags applied to the bucket."
+  type        = map(string)
+  default     = {}
 }

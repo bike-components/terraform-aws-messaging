@@ -4,8 +4,9 @@ variable "name_prefix" {
 }
 
 variable "tags" {
-  type    = map(string)
-  default = {}
+  description = "Tags applied to every resource created by this module."
+  type        = map(string)
+  default     = {}
 }
 
 # ---------------------------------------------------------------------------
@@ -31,8 +32,9 @@ variable "topic_name" {
 }
 
 variable "fifo_topic" {
-  type    = bool
-  default = false
+  description = "Create the topic as FIFO instead of standard. Ignored if create_topic is false."
+  type        = bool
+  default     = false
 }
 
 # ---------------------------------------------------------------------------
