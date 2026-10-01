@@ -20,9 +20,14 @@ variable "create_topic" {
 }
 
 variable "external_topic_arn" {
-  description = "ARN of an existing SNS topic to subscribe queues to, instead of creating one. Mutually exclusive with create_topic."
+  description = "ARN of an existing SNS topic to subscribe queues to, instead of creating one. Mutually exclusive with create_topic. May be in another AWS account and/or region: subscriptions are created in the topic's region (derived from the ARN), and for a foreign account the topic owner must first apply the grant from the external_topic_policy_json output. A standard (non-.fifo) topic can't deliver to FIFO queues."
   type        = string
   default     = null
+
+  validation {
+    condition     = var.external_topic_arn == null || can(regex("^arn:aws[a-z-]*:sns:[a-z0-9-]+:[0-9]{12}:[A-Za-z0-9_-]{1,256}(\\.fifo)?$", var.external_topic_arn))
+    error_message = "external_topic_arn must be an SNS topic ARN, e.g. arn:aws:sns:eu-central-1:111111111111:my-topic (any partition)."
+  }
 }
 
 variable "topic_name" {
@@ -33,6 +38,12 @@ variable "topic_name" {
 
 variable "fifo_topic" {
   description = "Create the topic as FIFO instead of standard. Ignored if create_topic is false."
+  type        = bool
+  default     = false
+}
+
+variable "topic_content_based_deduplication" {
+  description = "Enable content-based deduplication on the created FIFO topic, so publishers don't need to supply a MessageDeduplicationId. Ignored unless create_topic and fifo_topic are true."
   type        = bool
   default     = false
 }

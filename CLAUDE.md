@@ -22,6 +22,9 @@ Start here, in this order:
    trust-policy fallback).
 3. **`README.md`** — the consumer-facing usage doc (what someone
    pinning this module via `source = "git::..."` would read).
+4. **[`docs/CROSS_ACCOUNT.md`](docs/CROSS_ACCOUNT.md)** — only when
+   touching `external_topic_arn` / cross-account wiring: setup sequence,
+   policy hand-over, and troubleshooting, with Mermaid diagrams.
 
 ## Repo layout
 
@@ -29,6 +32,7 @@ Start here, in this order:
 main.tf, locals.tf, variables.tf, outputs.tf, iam.tf, s3_offload.tf   root module
 modules/sns/, modules/sqs/, modules/s3/                                nested submodules (single resource each)
 examples/basic/, examples/complete/, examples/direct-attachment/       runnable examples — also the integration-test fixtures
+examples/cross-account/acc-1/, examples/cross-account/acc-2/           two-account example: one root config per AWS account (profiles acc-1 / acc-2)
 docs/ARCHITECTURE.md, docs/decisions/                                  architecture + decision log (see above)
 ```
 
@@ -104,6 +108,7 @@ submodule; don't hand-edit content between the `<!-- BEGIN_TF_DOCS -->`
 terraform fmt -recursive -check   # verify formatting (pre-approved, no prompt)
 terraform init -backend=false     # local-only init, no state backend (pre-approved)
 terraform validate                # per directory: root, modules/*, examples/* (pre-approved)
+                                  # examples/cross-account has no root config — validate acc-1/ and acc-2/ separately
 
 # regenerate reference tables (pre-approved) — run from repo root, one shared .terraform-docs.yml:
 for d in . modules/sns modules/sqs modules/s3; do
@@ -118,12 +123,18 @@ though `plan` itself is read-only. There's no CI in this repo yet, so
 `fmt -check` + `validate` across root and every module/example directory
 is the whole safety net before a PR — run all of them, not just root.
 
-The three directories under `examples/` are the closest thing to an
-integration-test suite this module has (each exercises a different IAM
-pattern: role-assumption vs. direct-attachment vs. the full README usage
-example). When changing root module behavior, check whether an example
-needs updating to match, and prefer extending an existing example over
-adding a fourth unless the new pattern is genuinely different.
+The directories under `examples/` are the closest thing to an
+integration-test suite this module has. `basic/`, `complete/` and
+`direct-attachment/` each exercise a different IAM pattern
+(role-assumption, direct-attachment, and the full README usage
+example). `cross-account/` exercises `external_topic_arn`
+across two AWS accounts. It is split into `acc-1/` (topic owner, plain
+`aws_sns_topic`, not this module) and `acc-2/` (queue owner, uses this
+module), applied in the numbered `STEP`/`WAIT` order described in its
+`main.tf` files and in [`docs/CROSS_ACCOUNT.md`](docs/CROSS_ACCOUNT.md).
+When changing root module behavior, check whether an example needs
+updating to match, and prefer extending an existing example over adding
+another one unless the new pattern is genuinely different.
 
 ## Reducing cost and staying efficient
 
@@ -144,7 +155,7 @@ dependencies to index) — most tasks don't need heavy tooling:
   state, ask the user to run `terraform show`/`terraform state` and paste
   the relevant part.
 - **Scope searches to the source, not the noise.** When grepping across
-  the repo, exclude `.terraform/`, `examples/*/.terraform/`, and
+  the repo, exclude `.terraform/`, `examples/**/.terraform/`, and
   `*.tfstate*` — a plain repo-wide grep without excludes will match
   inside the committed lockfile and (locally, if present) provider
   binaries and state, none of which are useful signal.

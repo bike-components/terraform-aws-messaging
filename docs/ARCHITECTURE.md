@@ -49,6 +49,52 @@ producer ──publish──▶ SNS topic ──subscribe──▶ SQS queue ─
 A queue can also skip the topic entirely (`subscribe_to_topic = false`)
 for direct-send-only use, e.g. the `audit` queue in the usage examples.
 
+## External and cross-account topics
+
+With `external_topic_arn` instead of `create_topic`, `module.topic` isn't
+created and the queues subscribe to the given ARN. `locals.tf` parses the
+ARN (`arn:<partition>:sns:<region>:<account>:<name>`, validated in
+`variables.tf`) into:
+
+- `local.topic_region` — set as the provider-v6 `region` argument on
+  `aws_sns_topic_subscription.this`, because a subscription must be
+  created in the topic's region. Null for a created topic (provider
+  default). Queues, queue policies, and IAM stay in the provider region;
+  the queue policy's `aws:SourceArn` condition already works across
+  accounts and regions.
+- `local.topic_is_cross_account` — topic account ≠
+  `data.aws_caller_identity` account.
+
+```
+foreign account (topic owner)                this account (module)
+┌───────────────────────────────┐            ┌──────────────────────────────────┐
+│ SNS topic                     │──deliver──▶│ SQS queue + queue policy          │
+│ topic policy                  │            │   (sns.amazonaws.com, SourceArn)  │
+│   + external_topic_policy_json│◀── output ─┤ aws_sns_topic_subscription        │
+│     (applied by topic owner)  │            │   (region = topic's region)       │
+└───────────────────────────────┘            └──────────────────────────────────┘
+```
+
+Cross-account, the subscription is created by the queue owner (this
+module), so no confirmation handshake is needed — but the topic owner
+must grant `sns:Subscribe` first. The module can't write a foreign
+topic's policy, so `data.aws_iam_policy_document.external_topic_grant`
+(`iam.tf`, gated on `local.external_topic_grant_needed`) renders the
+required statements and exposes them as `external_topic_policy_json`:
+
+- `sns:Subscribe` to this account's root, conditioned on
+  `sns:Protocol = sqs` and `sns:Endpoint` ∈ `local.subscribed_queue_arns`;
+- `sns:Publish` to this account's root, only when
+  `create_topic_tx_role`/`create_topic_tx_policy` is set (the topic tx
+  policy in this account still scopes which principals can publish).
+
+`local.subscribed_queue_arns` is *predicted* from the resolved queue
+names (mirroring `modules/sqs`'s `.fifo` suffixing) rather than read from
+`module.queues`, so the grant is known at plan time and can be applied by
+the topic owner before this module's first apply. Why this direction and
+shape: [ADR 0005](decisions/0005-cross-account-subscription-by-queue-owner.md).
+Step-by-step setup, diagrams, and troubleshooting: [CROSS_ACCOUNT.md](CROSS_ACCOUNT.md).
+
 ## Settings resolution (`locals.tf`)
 
 Every queue-level numeric/duration setting (`visibility_timeout_seconds`,

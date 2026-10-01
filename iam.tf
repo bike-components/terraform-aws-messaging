@@ -16,6 +16,7 @@
 
 data "aws_caller_identity" "current" {}
 data "aws_partition" "current" {}
+data "aws_region" "current" {}
 
 # ---------------------------------------------------------------------------
 # Per-queue transmitters — direct sqs:SendMessage, plus s3:PutObject when
@@ -209,4 +210,67 @@ resource "aws_iam_role_policy_attachment" "topic_tx" {
 
   role       = aws_iam_role.topic_tx[0].name
   policy_arn = aws_iam_policy.topic_tx[0].arn
+}
+
+# ---------------------------------------------------------------------------
+# Cross-account external topic — the grant the *topic owner* must add to
+# their topic policy. This module can't write a foreign account's topic
+# policy, so it renders the statements as a policy document (output
+# external_topic_policy_json) for the topic owner to merge into theirs,
+# e.g. via aws_iam_policy_document.source_policy_documents.
+#
+# Built only from inputs and data sources (no resource attributes), so it's
+# known at plan time — the topic owner can apply it before this module's
+# first apply creates any subscription. See docs/decisions/0005.
+# ---------------------------------------------------------------------------
+
+data "aws_iam_policy_document" "external_topic_grant" {
+  count = local.external_topic_grant_needed ? 1 : 0
+
+  # Lets this account subscribe exactly its own queues, over SQS only.
+  dynamic "statement" {
+    for_each = length(local.subscribed_queue_arns) > 0 ? [1] : []
+    content {
+      sid       = "AllowSubscribeFrom${data.aws_caller_identity.current.account_id}"
+      effect    = "Allow"
+      actions   = ["sns:Subscribe"]
+      resources = [var.external_topic_arn]
+
+      principals {
+        type        = "AWS"
+        identifiers = [local.account_root_arn]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "sns:Protocol"
+        values   = ["sqs"]
+      }
+
+      condition {
+        test     = "StringEquals"
+        variable = "sns:Endpoint"
+        values   = local.subscribed_queue_arns
+      }
+    }
+  }
+
+  # Only when this module also hands out publish access (topic tx
+  # role/policy): the foreign topic must additionally trust this account.
+  # The account root is the trust anchor; which principals may actually
+  # publish is still scoped by the topic tx policy in this account.
+  dynamic "statement" {
+    for_each = local.create_topic_tx_policy ? [1] : []
+    content {
+      sid       = "AllowPublishFrom${data.aws_caller_identity.current.account_id}"
+      effect    = "Allow"
+      actions   = ["sns:Publish"]
+      resources = [var.external_topic_arn]
+
+      principals {
+        type        = "AWS"
+        identifiers = [local.account_root_arn]
+      }
+    }
+  }
 }

@@ -52,3 +52,8 @@ output "topic_tx_policy_arn" {
   description = "ARN of the topic's publish permission policy, or null if neither create_topic_tx_role nor create_topic_tx_policy is set. Attach it directly to a user, group, or your own role for access that doesn't require sts:AssumeRole."
   value       = local.create_topic_tx_policy ? aws_iam_policy.topic_tx[0].arn : null
 }
+
+output "external_topic_policy_json" {
+  description = "Only set when external_topic_arn is in another AWS account: an IAM policy document (JSON) with the statements the topic owner must add to that topic's resource policy — sns:Subscribe for this account's subscribed queues (scoped by sns:Protocol = sqs and sns:Endpoint = the queue ARNs), plus sns:Publish when create_topic_tx_role/create_topic_tx_policy is set. Merge it into the topic owner's own policy (e.g. aws_iam_policy_document.source_policy_documents) rather than replacing it. Known at plan time. Null for a created or same-account topic."
+  value       = local.external_topic_grant_needed ? data.aws_iam_policy_document.external_topic_grant[0].json : null
+}
