@@ -16,6 +16,12 @@ variable "fifo_topic" {
   default     = false
 }
 
+variable "content_based_deduplication" {
+  description = "Deduplicate FIFO messages by a SHA-256 hash of the body, so publishers don't need to supply a MessageDeduplicationId. Ignored unless fifo_topic is true."
+  type        = bool
+  default     = false
+}
+
 variable "kms_master_key_id" {
   description = "KMS key ID/ARN/alias for server-side encryption. Leave null for unencrypted."
   type        = string

@@ -9,11 +9,12 @@ locals {
 }
 
 resource "aws_sns_topic" "this" {
-  name              = local.topic_name
-  name_prefix       = local.topic_name_prefix
-  fifo_topic        = var.fifo_topic
-  kms_master_key_id = var.kms_master_key_id
-  tags              = var.tags
+  name                        = local.topic_name
+  name_prefix                 = local.topic_name_prefix
+  fifo_topic                  = var.fifo_topic
+  content_based_deduplication = var.fifo_topic ? var.content_based_deduplication : null
+  kms_master_key_id           = var.kms_master_key_id
+  tags                        = var.tags
 
   lifecycle {
     precondition {

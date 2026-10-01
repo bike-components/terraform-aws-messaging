@@ -29,6 +29,39 @@ locals {
   # topic ourselves — for_each and count can't depend on that.
   topic_enabled = var.create_topic || var.external_topic_arn != null
 
+  # ---------------------------------------------------------------------------
+  # External topic — may live in another account and/or region. Everything
+  # is derived from the ARN (arn:<partition>:sns:<region>:<account>:<name>),
+  # so no extra provider alias or input is needed.
+  # ---------------------------------------------------------------------------
+
+  external_topic_arn_parts = var.external_topic_arn == null ? null : split(":", var.external_topic_arn)
+
+  # Region the subscription must be created in (SNS requires the Subscribe
+  # call to hit the topic's region). Null = provider default, which is
+  # correct for a topic created by this module.
+  topic_region = local.external_topic_arn_parts == null ? null : local.external_topic_arn_parts[3]
+
+  topic_account_id       = local.external_topic_arn_parts == null ? data.aws_caller_identity.current.account_id : local.external_topic_arn_parts[4]
+  topic_is_cross_account = local.topic_account_id != data.aws_caller_identity.current.account_id
+
+  # ARNs of the queues that subscribe to the topic, predicted from their
+  # resolved names instead of read from module.queues — so the grant the
+  # foreign topic owner must apply (external_topic_policy_json) is known at
+  # plan time, before any queue exists. Must mirror modules/sqs's naming.
+  subscribed_queue_arns = [
+    for k, q in local.subscribed_queues : format(
+      "arn:%s:sqs:%s:%s:%s",
+      data.aws_partition.current.partition,
+      data.aws_region.current.region,
+      data.aws_caller_identity.current.account_id,
+      q.fifo_queue && !endswith(q.resolved_name, ".fifo") ? "${q.resolved_name}.fifo" : q.resolved_name,
+    )
+  ]
+
+  # Whether the foreign topic owner has anything to grant us at all.
+  external_topic_grant_needed = local.topic_is_cross_account && (length(local.subscribed_queue_arns) > 0 || local.create_topic_tx_policy)
+
   enable_large_payload_offload = length(local.offload_queues) > 0
   large_payload_bucket_name    = coalesce(var.large_payload_bucket_name, "${var.name_prefix}-payloads")
 

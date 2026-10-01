@@ -1,0 +1,3 @@
+# Hand-over artifacts between acc-1 and acc-2 (see README.md)
+*.tfplan
+grant.json

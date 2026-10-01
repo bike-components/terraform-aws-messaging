@@ -28,6 +28,7 @@ how this fits into the rest of the module.
 | <a name="input_name"></a> [name](#input\_name) | Exact topic name. Mutually exclusive with name\_prefix; leave both null to let the provider generate a name. | `string` | `null` | no |
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Prefix for a provider-generated topic name. Mutually exclusive with name. | `string` | `null` | no |
 | <a name="input_fifo_topic"></a> [fifo\_topic](#input\_fifo\_topic) | Create a FIFO topic instead of standard. Required if name ends in ".fifo". | `bool` | `false` | no |
+| <a name="input_content_based_deduplication"></a> [content\_based\_deduplication](#input\_content\_based\_deduplication) | Deduplicate FIFO messages by a SHA-256 hash of the body, so publishers don't need to supply a MessageDeduplicationId. Ignored unless fifo\_topic is true. | `bool` | `false` | no |
 | <a name="input_kms_master_key_id"></a> [kms\_master\_key\_id](#input\_kms\_master\_key\_id) | KMS key ID/ARN/alias for server-side encryption. Leave null for unencrypted. | `string` | `null` | no |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to the topic. | `map(string)` | `{}` | no |
 

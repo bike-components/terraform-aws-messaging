@@ -48,6 +48,58 @@ module "messaging" {
 }
 ```
 
+## Subscribing to an existing topic (same or foreign account/region)
+
+Instead of `create_topic`, pass `external_topic_arn` to subscribe the
+queues to a topic that already exists — including one owned by **another
+AWS account** and/or in **another region**:
+
+```hcl
+module "messaging" {
+  source = "git::https://github.com/tomxyz/terraform-aws-messaging.git?ref=v1.0.0"
+
+  name_prefix        = "orders-consumer"
+  external_topic_arn = "arn:aws:sns:eu-west-1:222222222222:order-events"
+
+  queues = {
+    orders = { create_dlq = true }
+  }
+}
+```
+
+- **Region** is derived from the ARN; subscriptions are created in the
+  topic's region (provider v6 per-resource `region`), queues stay in the
+  provider's region. No provider alias needs to be passed in.
+- **Cross-account**: this module (the queue owner) creates the
+  subscriptions — the AWS-recommended direction, which needs no
+  confirmation step. The topic owner has to allow it first: merge the
+  `external_topic_policy_json` output into the topic's resource policy
+  (it grants this account `sns:Subscribe`, scoped to `sns:Protocol = sqs`
+  and `sns:Endpoint` = these queue ARNs, plus `sns:Publish` if
+  `create_topic_tx_role`/`create_topic_tx_policy` is set). The output is
+  built from queue names, so it's known at `terraform plan` time — hand it
+  over before the first apply. Keep the topic owner's own statements when
+  merging; `aws_sns_topic_policy` replaces the whole policy. The output is
+  `null` for created or same-account topics.
+- `external_topic_arn` must be known at plan time (a literal, variable, or
+  remote-state value — not an attribute of a topic created in the same
+  apply), since it decides which subscriptions exist.
+- A standard topic can't deliver to FIFO queues; use a `.fifo` topic for
+  those.
+- **KMS**: if the foreign topic uses a customer-managed key, publishing to
+  it from this account needs `kms:GenerateDataKey*`/`kms:Decrypt` on that
+  key in both its key policy and the publisher's IAM policy (not included
+  in the module's topic tx policy). If the queues use a CMK, its key
+  policy must let `sns.amazonaws.com` use it (ideally conditioned on
+  `aws:SourceArn` = the topic ARN); the AWS-managed `alias/aws/sqs` key
+  doesn't work with SNS delivery.
+
+See [`examples/cross-account`](examples/cross-account) for a runnable
+two-account setup (`acc-1/` topic owner, `acc-2/` queue owner, one root
+configuration each, with the step-by-step apply order), and
+[ADR 0005](docs/decisions/0005-cross-account-subscription-by-queue-owner.md)
+for why the subscription is created on this side.
+
 ## IAM — per-queue/topic tx and rx roles
 
 There's no single blanket "transmitter" or "receiver" role for the whole
@@ -140,16 +192,16 @@ for the regeneration command. Don't hand-edit between the markers.
 
 | Name | Version |
 | ---- | ------- |
-| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.63.0 |
+| <a name="provider_aws"></a> [aws](#provider\_aws) | 6.66.0 |
 
 ## Modules
 
 | Name | Source | Version |
 | ---- | ------ | ------- |
 | <a name="module_topic"></a> [topic](#module\_topic) | ./modules/sns | n/a |
+| <a name="module_payload_bucket"></a> [payload\_bucket](#module\_payload\_bucket) | ./modules/s3 | n/a |
 | <a name="module_dlq"></a> [dlq](#module\_dlq) | ./modules/sqs | n/a |
 | <a name="module_queues"></a> [queues](#module\_queues) | ./modules/sqs | n/a |
-| <a name="module_payload_bucket"></a> [payload\_bucket](#module\_payload\_bucket) | ./modules/s3 | n/a |
 
 ## Resources
 
@@ -168,6 +220,7 @@ for the regeneration command. Don't hand-edit between the markers.
 | [aws_sqs_queue_policy.topic_publish](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue_policy) | resource |
 | [aws_sqs_queue_redrive_allow_policy.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue_redrive_allow_policy) | resource |
 | [aws_caller_identity.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/caller_identity) | data source |
+| [aws_iam_policy_document.external_topic_grant](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.queue_rx](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.queue_rx_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.queue_tx](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
@@ -175,6 +228,7 @@ for the regeneration command. Don't hand-edit between the markers.
 | [aws_iam_policy_document.topic_tx](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_iam_policy_document.topic_tx_assume](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_policy_document) | data source |
 | [aws_partition.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/partition) | data source |
+| [aws_region.current](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/region) | data source |
 
 ## Inputs
 
@@ -183,9 +237,10 @@ for the regeneration command. Don't hand-edit between the markers.
 | <a name="input_name_prefix"></a> [name\_prefix](#input\_name\_prefix) | Prefix applied to every resource name created by this module, unless overridden per-resource (e.g. via a queue's name\_override). | `string` | n/a | yes |
 | <a name="input_tags"></a> [tags](#input\_tags) | Tags applied to every resource created by this module. | `map(string)` | `{}` | no |
 | <a name="input_create_topic"></a> [create\_topic](#input\_create\_topic) | Create an SNS topic. Mutually exclusive with external\_topic\_arn — exactly one of the two should be set. | `bool` | `false` | no |
-| <a name="input_external_topic_arn"></a> [external\_topic\_arn](#input\_external\_topic\_arn) | ARN of an existing SNS topic to subscribe queues to, instead of creating one. Mutually exclusive with create\_topic. | `string` | `null` | no |
+| <a name="input_external_topic_arn"></a> [external\_topic\_arn](#input\_external\_topic\_arn) | ARN of an existing SNS topic to subscribe queues to, instead of creating one. Mutually exclusive with create\_topic. May be in another AWS account and/or region: subscriptions are created in the topic's region (derived from the ARN), and for a foreign account the topic owner must first apply the grant from the external\_topic\_policy\_json output. A standard (non-.fifo) topic can't deliver to FIFO queues. | `string` | `null` | no |
 | <a name="input_topic_name"></a> [topic\_name](#input\_topic\_name) | Name for the created topic (before prefixing). Ignored if create\_topic is false. | `string` | `"topic"` | no |
 | <a name="input_fifo_topic"></a> [fifo\_topic](#input\_fifo\_topic) | Create the topic as FIFO instead of standard. Ignored if create\_topic is false. | `bool` | `false` | no |
+| <a name="input_topic_content_based_deduplication"></a> [topic\_content\_based\_deduplication](#input\_topic\_content\_based\_deduplication) | Enable content-based deduplication on the created FIFO topic, so publishers don't need to supply a MessageDeduplicationId. Ignored unless create\_topic and fifo\_topic are true. | `bool` | `false` | no |
 | <a name="input_default_queue_settings"></a> [default\_queue\_settings](#input\_default\_queue\_settings) | Fallback SQS settings applied to every queue unless the queue sets its own value. | <pre>object({<br/>    visibility_timeout_seconds = optional(number, 30)<br/>    message_retention_seconds  = optional(number, 345600) # 4 days<br/>    max_message_size           = optional(number, 262144) # 256 KB, SQS hard cap<br/>    delay_seconds              = optional(number, 0)<br/>    receive_wait_time_seconds  = optional(number, 0)<br/>    max_receive_count          = optional(number, 5)<br/>  })</pre> | `{}` | no |
 | <a name="input_queues"></a> [queues](#input\_queues) | Map of queues to create. Key is the logical name, used for prefixed naming unless name\_override is set. Any *\_seconds/size field left null falls back to default\_queue\_settings. | <pre>map(object({<br/>    name_override               = optional(string, null)<br/>    fifo_queue                  = optional(bool, false)<br/>    content_based_deduplication = optional(bool, false)<br/><br/>    visibility_timeout_seconds = optional(number, null)<br/>    message_retention_seconds  = optional(number, null)<br/>    max_message_size           = optional(number, null)<br/>    delay_seconds              = optional(number, null)<br/>    receive_wait_time_seconds  = optional(number, null)<br/><br/>    create_dlq        = optional(bool, false)<br/>    max_receive_count = optional(number, null)<br/><br/>    # Pub/sub behavior<br/>    subscribe_to_topic   = optional(bool, true)<br/>    raw_message_delivery = optional(bool, true) # true = queue gets the raw payload, not wrapped in the SNS envelope<br/>    filter_policy        = optional(string, null)<br/>    filter_policy_scope  = optional(string, "MessageAttributes")<br/><br/>    # Large-payload handling (S3 bypass), opt-in per queue<br/>    enable_large_payload_offload = optional(bool, false)<br/><br/>    # IAM — opt this queue into its own dedicated tx (send) / rx (consume)<br/>    # role. Independent of each other and of every other queue/topic.<br/>    create_tx_role = optional(bool, false)<br/>    create_rx_role = optional(bool, false)<br/><br/>    # Principals trusted to assume this queue's tx/rx role. Left empty (the<br/>    # default), the role trusts the AWS account root instead — nobody can<br/>    # actually assume it until something grants sts:AssumeRole on the role's<br/>    # ARN, so this is a safe placeholder, not an open door.<br/>    tx_principal_arns = optional(list(string), [])<br/>    rx_principal_arns = optional(list(string), [])<br/><br/>    # Stand up the tx/rx permission set as a standalone, reusable IAM policy<br/>    # (with its ARN in the module outputs) without also creating a role.<br/>    # Use this to attach access straight to a user, group, or a role you<br/>    # manage yourself — e.g. a service account authenticating with static<br/>    # access keys, which has no way to call sts:AssumeRole against a role<br/>    # created by create_tx_role/create_rx_role. Implied by create_tx_role /<br/>    # create_rx_role, so you don't need to set both just to get a role.<br/>    create_tx_policy = optional(bool, false)<br/>    create_rx_policy = optional(bool, false)<br/>  }))</pre> | `{}` | no |
 | <a name="input_large_payload_bucket_name"></a> [large\_payload\_bucket\_name](#input\_large\_payload\_bucket\_name) | Override for the offload bucket name. Defaults to '<name\_prefix>-payloads'. | `string` | `null` | no |
@@ -209,6 +264,7 @@ for the regeneration command. Don't hand-edit between the markers.
 | <a name="output_queue_tx_policy_arns"></a> [queue\_tx\_policy\_arns](#output\_queue\_tx\_policy\_arns) | ARN of each queue's tx (send) permission policy, keyed by queue name. Present for queues with create\_tx\_role and/or create\_tx\_policy = true. Attach it directly to a user, group, or your own role for access that doesn't require sts:AssumeRole. |
 | <a name="output_queue_rx_policy_arns"></a> [queue\_rx\_policy\_arns](#output\_queue\_rx\_policy\_arns) | ARN of each queue's rx (consume) permission policy, keyed by queue name. Present for queues with create\_rx\_role and/or create\_rx\_policy = true. Attach it directly to a user, group, or your own role for access that doesn't require sts:AssumeRole. |
 | <a name="output_topic_tx_policy_arn"></a> [topic\_tx\_policy\_arn](#output\_topic\_tx\_policy\_arn) | ARN of the topic's publish permission policy, or null if neither create\_topic\_tx\_role nor create\_topic\_tx\_policy is set. Attach it directly to a user, group, or your own role for access that doesn't require sts:AssumeRole. |
+| <a name="output_external_topic_policy_json"></a> [external\_topic\_policy\_json](#output\_external\_topic\_policy\_json) | Only set when external\_topic\_arn is in another AWS account: an IAM policy document (JSON) with the statements the topic owner must add to that topic's resource policy — sns:Subscribe for this account's subscribed queues (scoped by sns:Protocol = sqs and sns:Endpoint = the queue ARNs), plus sns:Publish when create\_topic\_tx\_role/create\_topic\_tx\_policy is set. Merge it into the topic owner's own policy (e.g. aws\_iam\_policy\_document.source\_policy\_documents) rather than replacing it. Known at plan time. Null for a created or same-account topic. |
 <!-- END_TF_DOCS -->
 
 ## What's next / best practices worth adding
@@ -229,9 +285,9 @@ for the regeneration command. Don't hand-edit between the markers.
   `create_iam_roles = true` — right now both fail at apply time with a
   less obvious error instead of plan time.
 - **`examples/` directory.** Registry modules are expected to ship
-  runnable examples (`examples/basic`, `examples/fifo-with-dlq`,
-  `examples/external-topic`) — these also double as an integration test
-  fixture.
+  runnable examples — `basic`, `complete`, `direct-attachment`, and
+  `cross-account` exist; `fifo-with-dlq` is still missing. These also
+  double as integration test fixtures.
 - **Native `terraform test`** (`.tftest.hcl`) covering: DLQ wiring only
   appears when requested, subscription only created when
   `subscribe_to_topic = true`, offload IAM statements only appear when a

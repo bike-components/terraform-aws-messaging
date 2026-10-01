@@ -6,9 +6,10 @@ module "topic" {
   source = "./modules/sns"
   count  = var.create_topic ? 1 : 0
 
-  name       = local.topic_name
-  fifo_topic = var.fifo_topic
-  tags       = var.tags
+  name                        = local.topic_name
+  fifo_topic                  = var.fifo_topic
+  content_based_deduplication = var.topic_content_based_deduplication
+  tags                        = var.tags
 }
 
 # ---------------------------------------------------------------------------
@@ -20,7 +21,7 @@ module "dlq" {
   source   = "./modules/sqs"
   for_each = local.dlq_queues
 
-  name                       = "${each.value.resolved_name}-dlq"
+  name                       = "${trimsuffix(each.value.resolved_name, ".fifo")}-dlq"
   fifo_queue                 = each.value.fifo_queue
   visibility_timeout_seconds = each.value.visibility_timeout_seconds
   message_retention_seconds  = each.value.message_retention_seconds
@@ -70,8 +71,17 @@ resource "aws_sqs_queue_redrive_allow_policy" "this" {
 # Pub/sub wiring — subscribe queues to the topic (created or external)
 # ---------------------------------------------------------------------------
 
+# For an external topic in another account, this subscription is created by
+# the queue owner (this account) — the AWS-recommended direction, since SNS
+# then needs no confirmation handshake for the SQS endpoint. It requires the
+# topic owner to grant sns:Subscribe on their topic policy first; see the
+# external_topic_policy_json output and docs/decisions/0005.
 resource "aws_sns_topic_subscription" "this" {
   for_each = local.topic_enabled ? local.subscribed_queues : {}
+
+  # Subscriptions live in the topic's region, not the queue's. Null (created
+  # topic) falls back to the provider region.
+  region = local.topic_region
 
   topic_arn            = local.topic_arn
   protocol             = "sqs"
