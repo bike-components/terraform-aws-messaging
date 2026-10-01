@@ -188,6 +188,12 @@ known at **plan** time, so `acc-1` can apply the grant *before* `acc-2`'s
 first apply. Reading the real ARNs would leave the grant unknown until
 the queues exist, and the subscription in that same apply would fail.
 
+A queue with its own `name_prefix` has an AWS-generated random suffix
+that can't be predicted, so its entry is the wildcard
+`arn:...:sqs:<region>:<account>:<prefix>-*`, and the `sns:Endpoint`
+condition uses `StringLike`. That grant is broader: any queue in this
+account whose name starts with `<prefix>-` may be subscribed.
+
 The catch: if `modules/sqs` naming ever changes, the predicted ARNs stop
 matching and Subscribe fails with `AuthorizationError`.
 

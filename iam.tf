@@ -247,8 +247,10 @@ data "aws_iam_policy_document" "external_topic_grant" {
         values   = ["sqs"]
       }
 
+      # StringLike so name_prefix queues' '<prefix>-*' wildcards match; exact
+      # ARNs behave as with StringEquals (queue names can't contain * or ?).
       condition {
-        test     = "StringEquals"
+        test     = "StringLike"
         variable = "sns:Endpoint"
         values   = local.subscribed_queue_arns
       }

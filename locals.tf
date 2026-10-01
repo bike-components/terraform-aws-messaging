@@ -5,9 +5,13 @@ locals {
   # resolve its final prefixed name. Everything downstream reads from
   # local.queues instead of var.queues so overrides only have to be handled
   # once, here.
+  #
+  # With a per-queue name_prefix, AWS generates the real queue name, so
+  # resolved_name is only the deterministic base used for derived names
+  # (DLQ prefix, IAM policy/role names) — never the queue's actual name.
   queues = {
     for k, q in var.queues : k => merge(q, {
-      resolved_name = coalesce(q.name_override, "${var.name_prefix}-${k}")
+      resolved_name = coalesce(q.name_override, q.name_prefix, "${var.name_prefix}-${k}")
 
       visibility_timeout_seconds = coalesce(q.visibility_timeout_seconds, var.default_queue_settings.visibility_timeout_seconds)
       message_retention_seconds  = coalesce(q.message_retention_seconds, var.default_queue_settings.message_retention_seconds)
@@ -49,13 +53,19 @@ locals {
   # resolved names instead of read from module.queues — so the grant the
   # foreign topic owner must apply (external_topic_policy_json) is known at
   # plan time, before any queue exists. Must mirror modules/sqs's naming.
+  # A name_prefix queue's random suffix can't be predicted, so it gets a
+  # '<prefix>-*' wildcard instead (matched with StringLike in iam.tf).
   subscribed_queue_arns = [
     for k, q in local.subscribed_queues : format(
       "arn:%s:sqs:%s:%s:%s",
       data.aws_partition.current.partition,
       data.aws_region.current.region,
       data.aws_caller_identity.current.account_id,
-      q.fifo_queue && !endswith(q.resolved_name, ".fifo") ? "${q.resolved_name}.fifo" : q.resolved_name,
+      (
+        q.name_prefix != null ? "${q.name_prefix}-*" :
+        q.fifo_queue && !endswith(q.resolved_name, ".fifo") ? "${q.resolved_name}.fifo" :
+        q.resolved_name
+      ),
     )
   ]
 
