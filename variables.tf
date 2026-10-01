@@ -72,9 +72,12 @@ variable "default_queue_settings" {
 # ---------------------------------------------------------------------------
 
 variable "queues" {
-  description = "Map of queues to create. Key is the logical name, used for prefixed naming unless name_override is set. Any *_seconds/size field left null falls back to default_queue_settings."
+  description = "Map of queues to create. Key is the logical name, used for prefixed naming unless name_override or name_prefix is set. Any *_seconds/size field left null falls back to default_queue_settings."
   type = map(object({
-    name_override               = optional(string, null)
+    name_override = optional(string, null)
+    # Let AWS generate the queue name from this prefix ('<name_prefix>-<random>').
+    # Mutually exclusive with name_override; ignores the module-wide prefix.
+    name_prefix                 = optional(string, null)
     fifo_queue                  = optional(bool, false)
     content_based_deduplication = optional(bool, false)
 
@@ -119,6 +122,11 @@ variable "queues" {
     create_rx_policy = optional(bool, false)
   }))
   default = {}
+
+  validation {
+    condition     = alltrue([for q in values(var.queues) : q.name_override == null || q.name_prefix == null])
+    error_message = "A queue may set name_override or name_prefix, not both."
+  }
 }
 
 # ---------------------------------------------------------------------------

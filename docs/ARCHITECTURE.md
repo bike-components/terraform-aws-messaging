@@ -83,14 +83,16 @@ topic's policy, so `data.aws_iam_policy_document.external_topic_grant`
 required statements and exposes them as `external_topic_policy_json`:
 
 - `sns:Subscribe` to this account's root, conditioned on
-  `sns:Protocol = sqs` and `sns:Endpoint` ∈ `local.subscribed_queue_arns`;
+  `sns:Protocol = sqs` and `sns:Endpoint` `StringLike`
+  `local.subscribed_queue_arns`;
 - `sns:Publish` to this account's root, only when
   `create_topic_tx_role`/`create_topic_tx_policy` is set (the topic tx
   policy in this account still scopes which principals can publish).
 
 `local.subscribed_queue_arns` is *predicted* from the resolved queue
-names (mirroring `modules/sqs`'s `.fifo` suffixing) rather than read from
-`module.queues`, so the grant is known at plan time and can be applied by
+names (mirroring `modules/sqs`'s `.fifo` suffixing; a queue with its own
+`name_prefix` gets a `<prefix>-*` wildcard, since its random suffix is
+unknowable) rather than read from `module.queues`, so the grant is known at plan time and can be applied by
 the topic owner before this module's first apply. Why this direction and
 shape: [ADR 0005](decisions/0005-cross-account-subscription-by-queue-owner.md).
 Step-by-step setup, diagrams, and troubleshooting: [CROSS_ACCOUNT.md](CROSS_ACCOUNT.md).
@@ -104,8 +106,12 @@ once, in `locals.queues`, via `coalesce(queue-specific value,
 var.default_queue_settings.<field>)`. Every resource and IAM policy
 downstream reads from `local.queues`, never from `var.queues` directly —
 so a new setting only needs the coalesce added in one place, and nothing
-else changes. The same pattern resolves each queue's final name
-(`coalesce(q.name_override, "${var.name_prefix}-${k}")`).
+else changes. The same pattern resolves each queue's base name
+(`coalesce(q.name_override, q.name_prefix, "${var.name_prefix}-${k}")`).
+When a queue sets its own `name_prefix`, that base is passed to
+`modules/sqs` as `name_prefix` instead of `name` (AWS appends a random
+suffix, for the queue and its DLQ alike), and is otherwise only used for
+derived names such as the queue's IAM policy/role (`<base>-tx`/`-rx`).
 
 ## IAM model
 

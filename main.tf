@@ -21,7 +21,9 @@ module "dlq" {
   source   = "./modules/sqs"
   for_each = local.dlq_queues
 
-  name                       = "${trimsuffix(each.value.resolved_name, ".fifo")}-dlq"
+  # A name_prefix queue gets an AWS-generated DLQ name too ('<prefix>-dlq-<random>').
+  name                       = each.value.name_prefix == null ? "${trimsuffix(each.value.resolved_name, ".fifo")}-dlq" : null
+  name_prefix                = each.value.name_prefix == null ? null : "${each.value.name_prefix}-dlq"
   fifo_queue                 = each.value.fifo_queue
   visibility_timeout_seconds = each.value.visibility_timeout_seconds
   message_retention_seconds  = each.value.message_retention_seconds
@@ -38,7 +40,8 @@ module "queues" {
   source   = "./modules/sqs"
   for_each = local.queues
 
-  name                        = each.value.resolved_name
+  name                        = each.value.name_prefix == null ? each.value.resolved_name : null
+  name_prefix                 = each.value.name_prefix
   fifo_queue                  = each.value.fifo_queue
   content_based_deduplication = each.value.content_based_deduplication
 

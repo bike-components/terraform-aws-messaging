@@ -138,7 +138,9 @@ front.
 
 `name_prefix` is applied to every resource name (`<prefix>-<key>`, `<prefix>-payloads`,
 `<prefix>-messaging-transmitter`, ...). Any single queue can opt out entirely with
-`name_override`. Numeric limits (visibility timeout, message size, retention, receive
+`name_override` (exact name), or with its own `name_prefix` to let AWS generate a
+unique name (`<queue prefix>-<random>`; its DLQ becomes `<queue prefix>-dlq-<random>`,
+its IAM policies/roles `<queue prefix>-tx`/`-rx`). The two are mutually exclusive. Numeric limits (visibility timeout, message size, retention, receive
 wait time, max receive count) work the same way: set them once in
 `default_queue_settings`, and only specify a field on a queue when it needs to differ.
 Resolution happens once, in `locals.tf`, via `coalesce()` — nothing downstream needs

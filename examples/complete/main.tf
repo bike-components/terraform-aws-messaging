@@ -82,6 +82,10 @@ module "complete" {
       name_override      = "compliance-audit-queue" # ignores the prefix entirely
       subscribe_to_topic = false                    # direct-send only, not part of pub/sub
     }
+    notifications = {
+      name_prefix = "${local.name}-notify" # AWS generates the name: <prefix>-<random>
+      create_dlq  = true                   # DLQ follows suit: <prefix>-dlq-<random>
+    }
   }
   tags = local.tags
 }
